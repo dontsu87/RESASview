@@ -1,0 +1,3 @@
+# The site is intentionally static. Keep local server logs and editor files out.
+*.log
+.DS_Store

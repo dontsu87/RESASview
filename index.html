@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人吉市 RESASメッシュ静的デモ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body,#map{height:100%;margin:0}#controls{position:absolute;z-index:1000;top:10px;left:50px;background:#fff;padding:10px;box-shadow:0 1px 5px #777;font:14px sans-serif;line-height:1.8;max-width:calc(100vw - 90px)}#controls label{margin-right:8px}.legend-max{width:90px}.time-row{display:flex;align-items:center;gap:5px}.time-row input[type=range]{width:220px}.leaflet-tile.gsi-pale-gray{filter:grayscale(100%)}#status{margin-top:4px;color:#444}.legend{background:#fff;padding:8px 10px;line-height:1.3;box-shadow:0 1px 5px #777}.legend .gradient{width:180px;height:12px;margin:4px 0;background:linear-gradient(to right,#ffffcc,#c7e9b4,#7fcdbb,#41b6c4,#2c7fb8,#253494)}.legend.flow .gradient{background:linear-gradient(to right,#4575b4,#91bfdb,#ffffbf,#fc8d59,#d73027)}.legend .labels{display:flex;justify-content:space-between;font-size:11px}
+</style>
+</head>
+<body>
+<div id="controls">
+<label>指標 <select id="metric"><option value="staying">滞在人口</option><option value="flow">発生集中人口</option></select></label>
+<label>年 <select id="year"><option value="all">全期間平均</option></select></label>
+<label>月 <select id="month"><option value="all">全期間平均</option></select></label>
+<label>曜日 <select id="day"><option value="weekday">平日</option><option value="holiday">休日</option></select></label>
+<div class="time-row"><span>時刻</span><input id="hourSlider" type="range" min="0" max="23" step="1" value="0"><output id="hourOutput">0時</output><button id="play" type="button">▶ 再生</button></div>
+<label>凡例最大値 <input id="legendMax" class="legend-max" type="number" min="0" step="any"><button id="applyMax" type="button">適用</button></label>
+<div id="status">読み込み中…</div>
+</div>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([32.19,130.76],11);
+const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors'});
+const gsiPale=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{attribution:'<a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>',className:'gsi-pale-gray'});
+const gsiStd=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',{attribution:'<a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>'});
+const gsiPhoto=L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',{attribution:'<a href="https://www.gsi.go.jp/" target="_blank">国土地理院</a>'});
+gsiPale.addTo(map);L.control.layers({'地理院・淡色（グレースケール）':gsiPale,'地理院・標準':gsiStd,'地理院・航空写真':gsiPhoto,'OpenStreetMap':osm},null,{collapsed:false}).addTo(map);
+const metric=document.querySelector('#metric'),year=document.querySelector('#year'),month=document.querySelector('#month'),day=document.querySelector('#day'),slider=document.querySelector('#hourSlider'),hourOutput=document.querySelector('#hourOutput'),play=document.querySelector('#play'),maxInput=document.querySelector('#legendMax'),applyMax=document.querySelector('#applyMax'),status=document.querySelector('#status');
+let siteData,layer,legendMetric=null,legendMax=0,timer=null;
+const rampStay=['#ffffcc','#c7e9b4','#7fcdbb','#41b6c4','#2c7fb8','#253494'],rampFlow=['#4575b4','#91bfdb','#ffffbf','#fc8d59','#d73027'];
+function lerp(a,b,t){return Math.round(a+(b-a)*t)}function hexColor(a,b,t){const x=a.slice(1),y=b.slice(1);return '#'+[0,2,4].map(i=>lerp(parseInt(x.slice(i,i+2),16),parseInt(y.slice(i,i+2),16),t).toString(16).padStart(2,'0')).join('')}
+function colorFor(v,metric){if(v===null||v===undefined)return '#cccccc';const max=Math.max(0,Number(legendMax)||0);if(max===0)return '#ffffbf';const t=metric==='flow'?Math.max(0,Math.min(1,(v+max)/(2*max))):Math.max(0,Math.min(1,v/max));const ramp=metric==='flow'?rampFlow:rampStay,q=t*(ramp.length-1),i=Math.min(ramp.length-2,Math.floor(q));return hexColor(ramp[i],ramp[i+1],q-i)}
+const legend=L.control({position:'bottomright'});legend.onAdd=()=>{const d=L.DomUtil.create('div','legend');d.id='legend';return d};legend.addTo(map);
+function selectedKeys(){const ys=year.value==='all'?siteData.meta.years:[Number(year.value)],ms=month.value==='all'?siteData.meta.months:[Number(month.value)],keys=[];for(const y of ys)for(const m of ms)keys.push(`${y}-${String(m).padStart(2,'0')}-${day.value}`);return keys}
+function frame(metricName,hour){const n=siteData.meta.mesh_ids.length,keys=selectedKeys(),source=siteData.values[metricName],out=Array(n).fill(null),counts=Array(n).fill(0);for(const key of keys){const a=source[key];if(!a)continue;for(let i=0;i<n;i++){const v=a[hour*n+i];if(v!==null&&v!==undefined){out[i]=(out[i]===null?v:out[i]+v);counts[i]++}}}for(let i=0;i<n;i++)if(counts[i])out[i]/=counts[i];return out}
+function redraw(){const metricName=metric.value,vals=frame(metricName,Number(slider.value));if(legendMetric!==metricName){legendMetric=metricName;legendMax=metricName==='flow'?Math.max(...vals.map(v=>Math.abs(v||0)),0):Math.max(...vals.map(v=>v||0),0);maxInput.value=legendMax}const features=siteData.meta.mesh_ids.map((id,i)=>({type:'Feature',geometry:{type:'Polygon',coordinates:[[...siteData.meta.polygons[i]]]},properties:{mesh_id:id,value:vals[i]}}));if(layer)map.removeLayer(layer);layer=L.geoJSON({type:'FeatureCollection',features},{style:f=>({color:'#555',weight:.3,fillOpacity:.65,fillColor:colorFor(f.properties.value,metricName)}),onEachFeature:(f,l)=>l.bindPopup(`mesh: ${f.properties.mesh_id}<br>値: ${f.properties.value===null?'データなし':f.properties.value}`)}).addTo(map);const d=document.querySelector('#legend'),flow=metricName==='flow',fmt=x=>Number.isFinite(x)?Math.round(x).toLocaleString():'-';d.className='legend '+(flow?'flow':'');d.innerHTML=`<b>${siteData.meta.metrics[metricName].label}</b><br><span>連続値（最大値固定: ${fmt(legendMax)}）</span><div class="gradient"></div><div class="labels"><span>${flow?fmt(-legendMax):'0'}</span><span>${flow?'0':''}</span><span>${fmt(legendMax)}</span></div>`;status.textContent=`${siteData.meta.area_label} / ${siteData.meta.metrics[metricName].label} / ${features.filter(f=>f.properties.value!==null).length}メッシュ`+(year.value==='all'||month.value==='all'?'（平均）':'')}
+function setHour(v){slider.value=v;hourOutput.value=`${v}時`}function togglePlay(){if(timer){clearInterval(timer);timer=null;play.textContent='▶ 再生';return}play.textContent='⏸ 停止';timer=setInterval(()=>{setHour((Number(slider.value)+1)%24);redraw()},500)}
+async function init(){const r=await fetch('data/data.json');siteData=await r.json();for(const y of siteData.meta.years)year.add(new Option(y,y));for(const m of siteData.meta.months)month.add(new Option(m,m));const bounds=[];for(const p of siteData.meta.polygons)for(const xy of p)bounds.push([xy[1],xy[0]]);if(bounds.length)map.fitBounds(bounds,{padding:[20,20]});setHour(0);redraw()}
+metric.addEventListener('change',redraw);year.addEventListener('change',redraw);month.addEventListener('change',redraw);day.addEventListener('change',redraw);slider.addEventListener('input',()=>{setHour(slider.value);redraw()});play.addEventListener('click',togglePlay);applyMax.addEventListener('click',()=>{const v=Number(maxInput.value);if(Number.isFinite(v)&&v>=0){legendMax=v;redraw()}});maxInput.addEventListener('change',()=>applyMax.click());init().catch(e=>status.textContent='データ読み込みエラー: '+e.message);
+</script>
+</body>
+</html>
