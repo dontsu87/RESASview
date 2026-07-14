@@ -22,6 +22,8 @@ python -m http.server 8766 --directory public-sites/hitoyoshi-mobility-demo
 
 このフォルダの内容を専用の公開リポジトリのルートに置き、ActionsのPagesデプロイを有効にします。`.github/workflows/pages.yml` はそのための最小構成です。
 
+初回だけ、GitHubリポジトリの **Settings → Pages → Build and deployment → Source** で **GitHub Actions** を選択してください。その後、Actionsの Deploy static demo to GitHub Pages を再実行すると、https://dontsu87.github.io/RESASview/ で公開されます。
+
 ## 注意
 
 地理院地図・OpenStreetMapのタイルは外部サービスを参照します。各サービスの利用規約、帰属表示、アクセス制限を確認してください。GitHub Pagesは公開サイトであり、アクセス制御や認証はありません。
